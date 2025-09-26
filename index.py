@@ -1,27 +1,31 @@
-import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
-from PIL import Image
+import cv2
+import easyocr
 
-model=models.resnet18(pretrained=True)
-model.eval()
+# Step 1: Load image
+img = cv2.imread("Island.jpg")
 
-#preprocessing 
-# This allows you to make multiple image transformation into a pipeline.
+# Step 2: Preprocess
+gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)          # Grayscale
+denoised = cv2.medianBlur(gray, 3)                    # Remove noise
 
-preprocess=transforms.Compose([
-    #Most pre-trained models Resnet, MobileNet expect images to have a fixed size as an input,
-    #It makes all the image of the same size.
-    # The image is then converted into
-    transforms.Resize(224,224,3),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-    # all the images on which the model was trained on was normalized_pixel
-    # normalized_pixel=(pixel-mean)/std
-])
+# Step 3: Threshold (binarization)
+_, thresh = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-img=Image.open()
-img_tensor=preprocess(img).unsqueeze(0)
+# Step 4: (Optional) Resize to improve OCR on small text
+scale_percent = 200  # enlarge by 200%
+w = int(thresh.shape[1] * scale_percent / 100)
+h = int(thresh.shape[0] * scale_percent / 100)
+resized = cv2.resize(thresh, (w, h), interpolation=cv2.INTER_LINEAR)
+
+# Step 5: OCR with EasyOCR
+reader = easyocr.Reader(['en', 'fr', 'hi', 'de', 'ja'])  # Add languages you expect
+results = reader.readtext(resized)
+
+# Step 6: Print extracted text
+for (bbox, text, prob) in results:
+    print(f"Detected: {text} (Confidence: {prob:.2f})")
+
+# (Optional) Show processed image
+cv2.imshow("Processed", resized)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
