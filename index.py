@@ -1,94 +1,43 @@
-import cv2 
-import pytesseract
-from passporteye import read_mrz
-from PIL import Image
+import easyocr
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import cv2
+app=FastAPI()
 
-# (Optional) Only needed on Windows, set Tesseract path:
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+class Request(BaseModel):
+    image_path:str
 
-def preprocess_image(image_path):
-    # Load image
-    img = cv2.imread(image_path)
+@app.post("/mrz")
+async def mrz_extraction(request:Request):
+    try:
+        ans=extract_mrz_easy(request.image_path)
+        return ans
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+def extract_mrz_easy(image_path):
+    img=cv2.imread(image_path)
+    h,w=img.shape[:2]
+    lower_part=img[int(h*0.80):h,0:w]
+    gray=cv2.cvtColor(lower_part,cv2.COLOR_BGR2GRAY)
+    
+    # Initialize EasyOCR
+    reader = easyocr.Reader(['en'], gpu=False, verbose=False)  # Set gpu=True if you have CUDA
+    cv2.imwrite("gray.png",gray)
+    # Run OCR
+    result = reader.readtext(gray,detail=0)
+    n=len(result)
 
-    # Denoise
-    denoised = cv2.medianBlur(gray, 3)
+    mrz_lines = []
+    for detection in result:
+        text = detection
+        mrz_lines.append(text)
+    print("📄 Detected MRZ lines:",mrz_lines)
+    return {
+        "first":result[n-2],
+        "second":result[n-1]
+    }
 
-    # Adaptive thresholding
-    thresh = cv2.adaptiveThreshold(
-        denoised, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 31, 2
-    )
-
-    # Morphological cleanup
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-    morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-
-    # Resize to improve OCR
-    resized = cv2.resize(morph, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-
-    return resized
-
-def extract_text(image_path):
-    processed = preprocess_image(image_path)
-    # OCR with Tesseract
-    custom_config = r'--oem 3 --psm 6'
-    text = pytesseract.image_to_string(processed, config=custom_config)
-    return text
-
-def extract_mrz(image_path):
-    mrz = read_mrz(image_path)
-    if mrz is None:
-        return None
-    return mrz.to_dict()
-
-img_path = "./Island.jpg"
-mrz_data = extract_mrz(img_path)
-text=mrz_data['raw_text']
-
-nationality=''
-nationality+=text[2]+text[3]+text[4]
-first_name=''
-last_name=''
-
-index=-1
-
-for i in range(5,len(text)+1):
-    if(text[i]=='<' and text[i+1]=='<'):
-        index=i+2
-        break
-    else:
-        last_name+=text[i]
-
-passport_number=''
-index2=45
-while(index2<=53):
-    if(text[index2]!='<'):
-        passport_number+=text[index2]
-        index2=index2+1
-    else:
-        break
-
-ind=58
-dob=''
-expiry_date=''
-gender=''
-
-for i in range(index,len(text)+1):
-    if(text[i]=='<' and text[i+1]=='<'):
-        break
-
-    elif(text[i]=='<' and text[i+1]!='<'):
-        first_name+=' '
-
-    else:
-        first_name+=text[i]
-
-
-print(nationality,first_name,last_name,passport_number)
-
-
-
+ans1=extract_mrz_easy("IND.png")
+print("EasyOCR Result:\n", ans1)
