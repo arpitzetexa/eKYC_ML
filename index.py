@@ -7,7 +7,7 @@ import urllib.request
 app=FastAPI()
 
 class Request(BaseModel):
-    image_path:str
+    url_path:str
 
 @app.get("/")
 def get_root_url():
@@ -16,8 +16,11 @@ def get_root_url():
 @app.post("/mrz")
 async def mrz_extraction(request:Request):
     try:
-        ans=extract_mrz_easy(request.image_path)
-        return ans
+        ans=extract_mrz_easy(request.url_path)
+        return {
+            "status_code":200,
+            "passport_details":ans
+        }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -56,22 +59,19 @@ def extract_mrz_easy(image_path):
     cv2.imwrite("rotated.png",gray)
     
     # Run OCR
-    result = reader.readtext(gray,detail=0)
-    result2 = reader.readtext(gray)
-    
-    for (_, text, confidence) in result2:
-        print(f"Text: {text}")
-        print(f"Confidence: {confidence:.2f}")  # 0.0 to 1.0
-        print(f"Percentage: {confidence * 100:.2f}%")
-        print("---")
-    
+    result = reader.readtext(gray)
+
     n=len(result)
-    line1=result[n-2]
-    line2=result[n-1]
+    confidence_line1=result[n-2][2]
+    confidence_line2=result[n-1][2]
+
+    line1=result[n-2][1]
+    line2=result[n-1][1]
     
-    if(len(line1)!=44 or len(line2)!=44):
-        raise Exception("MRZ lines not detected properly")
-    
+    if(len(line1)!=44 or len(line2)!=44 or confidence_line1<0.7 or confidence_line2<0.7):
+        raise HTTPException(
+                            status_code=400,
+                            detail="MRZ lines not detected properly. Please provide a clear image of the passport.")
     first_name=""
     surname=""
     flag=False
@@ -117,5 +117,5 @@ def extract_mrz_easy(image_path):
     }
 
 
-# ans1=extract_mrz_easy("https://www.immihelp.com/assets/article-images/sample-indian-passport-1.jpg")
-# print("EasyOCR Result:\n", ans1)
+ans1=extract_mrz_easy("https://www.immihelp.com/assets/article-images/sample-indian-passport-1.jpg")
+print("EasyOCR Result:\n", ans1)
